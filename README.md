@@ -29,7 +29,7 @@ Interactive API docs are at `/docs` while the server is running.
 Request (made-up clause):
 
 ```sh
-curl -s http://127.0.0.1:8000/clauses/review \
+curl -s http://127.0.0.1:4000/clauses/review \
   -H 'Content-Type: application/json' \
   -d '{"clause": "The Supplier may terminate this Agreement at any time without notice and retain all fees paid."}'
 ```
@@ -56,41 +56,41 @@ Response:
 
 ## Contract
 
-| Field | Rule |
-|---|---|
-| `clause` (request) | string, 20–4000 characters |
-| `risk` | `low`, `medium` or `high` |
-| `summary` | short text |
-| `issues` | 0–5 items of `{excerpt, concern}`; every `excerpt` is quoted exactly from the clause |
-| `disclaimer` | always present, added by the server |
+| Field                | Rule                                                                                      |
+| -------------------- | ----------------------------------------------------------------------------------------- |
+| `clause` (request) | string, 20–4000 characters                                                               |
+| `risk`             | `low`, `medium` or `high`                                                           |
+| `summary`          | short text                                                                                |
+| `issues`           | 0–5 items of `{excerpt, concern}`; every `excerpt` is quoted exactly from the clause |
+| `disclaimer`       | always present, added by the server                                                       |
 
 ## Errors
 
-| Status | `error` | When |
-|---|---|---|
-| 400 | `invalid_clause` | missing field, wrong type, or clause outside 20–4000 characters |
-| 502 | `model_unavailable` | the LLM call failed |
-| 502 | `model_reply_invalid` | the model's reply did not match the expected shape |
-| 502 | `ungrounded_issue` | the model quoted text that is not in the clause |
+| Status | `error`               | When                                                             |
+| ------ | ----------------------- | ---------------------------------------------------------------- |
+| 400    | `invalid_clause`      | missing field, wrong type, or clause outside 20–4000 characters |
+| 502    | `model_unavailable`   | the LLM call failed                                              |
+| 502    | `model_reply_invalid` | the model's reply did not match the expected shape               |
+| 502    | `ungrounded_issue`    | the model quoted text that is not in the clause                  |
 
 Error bodies look like `{"error": "invalid_clause", "detail": "clause must be 20-4000 characters"}`.
 
 ## Environment variables
 
-| Variable | Required | Purpose |
-|---|---|---|
-| `OPENAI_API_KEY` | yes | API key for the LLM provider. Environment only, never committed. |
-| `CLAUSECHECK_MODEL` | yes | Model name. No default. Use `gpt-6-luna` locally, `gpt-6.1-terra` in production. |
-| `CLAUSECHECK_REASONING_EFFORT` | no | Model reasoning effort: `none`, `low`, `medium` or `high`. Default `low`. |
-| `PORT` | no | Port for `scripts/start.sh`. Default `8000`. |
-| `LOG_LEVEL` | no | `DEBUG`, `INFO`, `WARNING` or `ERROR`. Default `INFO`. |
-| `LOG_FORMAT` | no | `json` (default, for Fly.io) or `console` (readable, for local dev). |
-| `LANGSMITH_TRACING` | no | `true` sends traces to LangSmith. Default off. |
-| `LANGSMITH_API_KEY` | if tracing | LangSmith API key. Environment only, never committed. |
-| `LANGSMITH_ENDPOINT` | if tracing | `https://api.smith.langchain.com` |
-| `LANGSMITH_PROJECT` | if tracing | `ClauseCheck` |
-| `LANGSMITH_HIDE_INPUTS` | if tracing | Must be `true`: clause text is never sent. |
-| `LANGSMITH_HIDE_OUTPUTS` | if tracing | Must be `true`: model replies are never sent. |
+| Variable                         | Required   | Purpose                                                                              |
+| -------------------------------- | ---------- | ------------------------------------------------------------------------------------ |
+| `OPENAI_API_KEY`               | yes        | API key for the LLM provider. Environment only, never committed.                     |
+| `CLAUSECHECK_MODEL`            | yes        | Model name. No default. Use `gpt-6-luna` locally, `gpt-6.1-terra` in production. |
+| `CLAUSECHECK_REASONING_EFFORT` | no         | Model reasoning effort: `none`, `low`, `medium` or `high`. Default `low`.  |
+| `PORT`                         | no         | Port for `scripts/start.sh`. Default `8000`.                                     |
+| `LOG_LEVEL`                    | no         | `DEBUG`, `INFO`, `WARNING` or `ERROR`. Default `INFO`.                     |
+| `LOG_FORMAT`                   | no         | `json` (default, for Fly.io) or `console` (readable, for local dev).             |
+| `LANGSMITH_TRACING`            | no         | `true` sends traces to LangSmith. Default off.                                     |
+| `LANGSMITH_API_KEY`            | if tracing | LangSmith API key. Environment only, never committed.                                |
+| `LANGSMITH_ENDPOINT`           | if tracing | `https://api.smith.langchain.com`                                                  |
+| `LANGSMITH_PROJECT`            | if tracing | `ClauseCheck`                                                                      |
+| `LANGSMITH_HIDE_INPUTS`        | if tracing | Must be `true`: clause text is never sent.                                         |
+| `LANGSMITH_HIDE_OUTPUTS`       | if tracing | Must be `true`: model replies are never sent.                                      |
 
 ### Logging
 
