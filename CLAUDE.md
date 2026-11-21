@@ -47,7 +47,8 @@ Domain-driven design, strictly layered. Hard rules:
   (e.g. `review.completed`) and only the allowlisted fields in ARCHITECTURE.md section 9.
 - Never pass clause text, prompts, summaries, excerpts, replies or exception messages as log
   fields or into event names. Log `exception_type`, not the message.
-- Keep `show_locals=False`; never log request or response bodies.
+- Exceptions are logged only as `exception_type` + `stack` frames (logging.py); never log
+  exception messages, locals, or request/response bodies.
 - Every new error path gets a test that the clause does not appear in captured logs.
 
 ## Tracing (LangSmith)
@@ -67,7 +68,8 @@ Domain-driven design, strictly layered. Hard rules:
 - Tests: pytest. Run with `uv run pytest`. Tests mirror app/ (tests/domain/, tests/application/,
   tests/infrastructure/, tests/api/). Every new behaviour gets a test in its layer.
 - Never call the real API in tests or need a key: domain tests use no mocks, use-case tests
-  inject a fake ReviewModel, API tests patch ask_llm.
+  inject a fake ReviewModel, API tests patch ask_llm where it is used
+  (`app.infrastructure.openai_review_model.ask_llm`).
 - Style: type hints on every function; `ruff check` and `ruff format` before each commit.
 - New endpoints go in app/api/routes/, one file per resource. New use cases go in app/application/.
 - Start/stop scripts live in scripts/ and stay POSIX sh.

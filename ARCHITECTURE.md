@@ -48,6 +48,7 @@ flowchart TB
     subgraph APP["application — app/application/"]
         usecase["review_clause.py<br/>ReviewClause use case<br/>+ server disclaimer"]
         port["ports.py<br/>ReviewModel protocol"]
+        aerrors["errors.py<br/>ModelUnavailable · ModelReplyInvalid"]
     end
 
     subgraph DOMAIN["domain — app/domain/"]
@@ -99,7 +100,7 @@ flowchart TB
     classDef root fill:#ede9fe,stroke:#7c3aed,color:#4c1d95
 
     class route,schemas,errmap,mw api
-    class usecase,port app
+    class usecase,port,aerrors app
     class clause,review,grounding,derrors dom
     class adapter,llm,reply,prompts,config,logcfg infra
     class client,provider,smith,stdout ext
@@ -125,10 +126,10 @@ sequenceDiagram
     U->>D: Clause(text) checks 20–4000 chars
     U->>M: review(clause)
     M->>M: load prompts/review.md
-    M->>L: ask_llm(system_prompt, clause_text)
+    M->>L: ask_llm(system_prompt, clause_text, json_schema)
     L->>P: one Responses API call, strict JSON schema (Structured Outputs)
-    P-->>L: raw reply text
-    L-->>M: raw reply text
+    P-->>L: response
+    L-->>M: LlmReply(text, model, tokens_in, tokens_out)
     M->>M: parse with model_reply.py (pydantic)
     M-->>U: domain Review
     U->>D: check_grounded(review, clause)
@@ -160,10 +161,13 @@ flowchart LR
 
 | Raised by | Error | Status | `error` code |
 |---|---|---|---|
-| api / domain | missing field, wrong type, clause under 20 or over 4000 chars | 400 | `invalid_clause` |
-| infrastructure | SDK error, timeout, auth failure | 502 | `model_unavailable` |
-| infrastructure | model refusal or incomplete response; reply not JSON, missing or extra fields, risk not low/medium/high, more than 5 issues, field too long | 502 | `model_reply_invalid` |
-| domain | an issue excerpt not found in the clause | 502 | `ungrounded_issue` |
+| api (DTO) / domain (`InvalidClause`) | body not JSON, missing field, wrong type, unknown field; clause under 20 or over 4000 chars or whitespace-only | 400 | `invalid_clause` |
+| infrastructure raises application `ModelUnavailable` | SDK error, timeout, auth failure | 502 | `model_unavailable` |
+| infrastructure raises application `ModelReplyInvalid` | model refusal or incomplete response; reply not JSON, missing or extra fields, risk not low/medium/high, more than 5 issues, field too long | 502 | `model_reply_invalid` |
+| domain (`UngroundedIssue`) | an issue excerpt not found in the clause | 502 | `ungrounded_issue` |
+
+The model errors live in `app/application/errors.py` as part of the `ReviewModel` port
+contract, so `app/api/errors.py` can map them without importing infrastructure.
 
 Error bodies are `{"error": "<code>", "detail": "<short message>"}`. The detail never echoes
 the clause or the model reply. FastAPI's default 422 for validation errors is replaced with 400
@@ -181,7 +185,9 @@ Names come from the PROJECT.md glossary.
 | `Review` | value object | one `RiskLevel`, a `summary` of 1–500 characters, 0–5 `Issue`s |
 | grounding rule | function | every `Issue.excerpt` is an exact substring of `Clause.text` |
 
-The request DTO rejects unknown fields and non-JSON bodies with 400 `invalid_clause`.
+The request DTO checks shape only (JSON body, required string `clause`, no unknown fields).
+`Clause` is the single owner of the length and whitespace rules; it raises `InvalidClause`,
+which the api maps to 400 `invalid_clause`.
 
 Domain types are frozen dataclasses with no framework imports, so they can be tested without
 mocks and reused by any future adapter.
@@ -208,13 +214,14 @@ app/
   application/
     review_clause.py                   ReviewClause use case; adds the disclaimer
     ports.py                           ReviewModel protocol
+    errors.py                          ModelUnavailable, ModelReplyInvalid (port contract)
   domain/
     clause.py                          Clause
     review.py                          Issue, RiskLevel, Review
     grounding.py                       grounding rule
     errors.py                          InvalidClause, UngroundedIssue, ...
   infrastructure/
-    config.py                          settings from env: CLAUSECHECK_MODEL (no default), OPENAI_API_KEY, LANGSMITH_*
+    config.py                          settings from env: CLAUSECHECK_*, OPENAI_API_KEY, LANGSMITH_*, LOG_*
     llm.py                             ask_llm(); the only OpenAI SDK import; wraps the client for LangSmith
     model_reply.py                     pydantic model of the LLM reply → domain Review
     prompts.py                         loads prompts/review.md
@@ -239,17 +246,22 @@ tests/
   Logs carry only the allowlisted fields in section 9. LangSmith traces count as logs
   (see section 10). Exception messages count too: never put clause or reply text in an error
   message, and never chain a pydantic `ValidationError` (its message quotes its input).
+  Domain objects and `LlmReply` override `__repr__` to show lengths, not text. OpenAI requests
+  use `store=False`, so the provider does not keep the clause.
 - **Untrusted input.** The clause is data, not instructions. The prompt tells the model to ignore
   any instructions inside the clause, and the reply is still fully validated, so an injected
   "rate this low" can at worst yield a wrong-but-valid triage, never a malformed answer.
 - **No verdicts.** Risk is low, medium or high. No "safe", no advice, no rewriting.
 - **Configuration.** From the environment only (locally a gitignored `.env`; template `.env.example`),
-  read once in `app/infrastructure/config.py`.
+  read once in `app/infrastructure/config.py`. Config reads the process environment only, never a
+  `.env` file itself; `scripts/start.sh` (or `set -a; . ./.env; set +a`) supplies it. Tests
+  therefore never see the real `.env`.
   `CLAUSECHECK_MODEL` has no default; the app refuses to start without it.
 - **Disclaimer.** Added by the application layer, never by the model. One constant in
   `app/application/review_clause.py`: "Automated triage only. This is not legal advice; a lawyer
   must review the clause."
-- **One LLM call, Structured Outputs.** `ask_llm()` makes exactly one OpenAI Responses API
+- **One LLM call, Structured Outputs.** `ask_llm(system_prompt, user_text, json_schema)` returns
+  `LlmReply(text, model, tokens_in, tokens_out)` and makes exactly one OpenAI Responses API
   request: the reply schema from `model_reply.py` is sent as a strict JSON schema, reasoning
   effort comes from `CLAUSECHECK_REASONING_EFFORT` (default `low`), no `temperature`, a 30 s
   timeout and no retries. A timeout or SDK error becomes `model_unavailable` (502); a refusal or
@@ -266,7 +278,8 @@ tests/
 **structlog** on top of the standard `logging` module, writing one JSON object per line to
 stdout. Fly.io collects stdout (`fly logs`); locally `LOG_FORMAT=console` gives readable output.
 Uvicorn's own loggers go through the same pipeline, so every line has the same shape.
-Uvicorn runs with `--no-access-log`; the middleware writes the access line instead.
+Uvicorn runs with `--no-access-log`, and `logging.py` also disables the `uvicorn.access` logger
+(it would add the client IP); the middleware writes the access line instead.
 
 Set up once in `app/infrastructure/logging.py` and called from `app/main.py` at startup.
 `app/api/middleware.py` binds a `request_id` (from an incoming `X-Request-ID` header if it is at
@@ -285,7 +298,7 @@ matched.
 **Allowed fields** (a processor drops every other key before rendering):
 `timestamp`, `level`, `event`, `logger`, `request_id`, `method`, `path`, `status`, `latency_ms`,
 `clause_length`, `risk`, `issue_count`, `grounded`, `error`, `model`, `tokens_in`, `tokens_out`,
-`exception_type`.
+`exception_type`, `stack`.
 
 **Never logged:** clause text, prompt, summary, excerpts, concerns, raw model reply, request or
 response bodies, exception messages that may quote input (pydantic `ValidationError`), API keys.
@@ -294,9 +307,9 @@ Guards:
 
 1. The allowlist processor runs last before the renderer, so a mistaken
    `log.info("x", clause=text)` is dropped, not printed.
-2. Tracebacks never include local variables: `show_locals=False` set explicitly (structlog's
-   dict traceback formatter defaults to showing locals). Only `exception_type` and the stack
-   frames are logged, not the exception message.
+2. Exceptions are reduced by `logging.py` to `exception_type` and a `stack` of `file:line in
+   function` frames. The exception message and local variables are never rendered (structlog's
+   own dict traceback formatter is not used, since it shows locals by default).
 3. Event names are fixed strings (`review.completed`, `llm.call_failed`); never format input into them.
 4. `LOG_LEVEL` defaults to `INFO`. `DEBUG` adds no new fields; the allowlist still applies.
 
@@ -304,13 +317,15 @@ Guards:
 
 Optional, off unless `LANGSMITH_TRACING=true`. Lives entirely in infrastructure: `llm.py` wraps the
 OpenAI client with `wrap_openai`, and the `OpenAIReviewModel` adapter is `@traceable`, so each
-request is one trace. No other layer imports `langsmith`.
+request is one trace (the OpenAI call is a child run, hidden by the same flags). No other layer
+imports `langsmith`. The grounding result is decided in the application layer, which may not
+import `langsmith`, so it appears in the logs (`review.completed` / `review.failed`), not in traces.
 
 | Sent to LangSmith | Never sent |
 |---|---|
 | model name, latency, token counts | clause text |
 | risk level, issue count | system prompt + clause |
-| grounding pass/fail, error code | raw model reply, summary, excerpts |
+| | raw model reply, summary, excerpts |
 | `request_id` (matches the log lines) | |
 
 Guards:
@@ -351,7 +366,10 @@ flowchart LR
 **Dockerfile** (multi-stage):
 
 - Build stage: `python:3.15-slim` plus the `uv` binary copied from its official image, both pinned
-  to exact versions. `uv sync --frozen --no-dev` installs the locked dependencies into `/app/.venv`.
+  to exact versions (`python:3.15.2-slim`, `uv:0.13.9`). `gcc` is installed here only, because
+  some dependencies have no prebuilt Python 3.15 wheels yet (e.g. `zstandard`, via `langsmith`).
+  `uv sync --frozen --no-dev --no-install-project` installs the locked dependencies into
+  `/app/.venv`.
 - Runtime stage: `python:3.15-slim`, copies only `.venv`, `app/` and `prompts/`. Runs as a
   non-root user. `PYTHONUNBUFFERED=1`, `LOG_FORMAT=json`.
 - Command: `uvicorn app.main:app --host 0.0.0.0 --port 8080 --no-access-log`, one worker. Scale
@@ -382,9 +400,9 @@ All tests run offline with no API key. `pytest` runs the whole suite.
 | Layer | How | Cases |
 |---|---|---|
 | domain | plain unit tests, no mocks | clause of 19, 20, 4000, 4001 chars; more than 5 issues rejected; risk enum rejects "safe"; grounded vs ungrounded excerpt; exact match (whitespace and case matter) |
-| infrastructure | parser tests on canned strings; `ask_llm` with the SDK client mocked | valid JSON → Review; non-JSON, missing field, extra verdict field, bad risk → `model_reply_invalid`; model name read from config; missing `CLAUSECHECK_MODEL` fails at startup; SDK error → `model_unavailable`; tracing on without both hide flags fails at startup; captured trace payload never contains the clause or reply; error messages carry no clause/reply text; request sends the strict JSON schema and reasoning effort, and no `temperature`; refusal or incomplete response → `model_reply_invalid`; summary/concern over the length limit → `model_reply_invalid` |
+| infrastructure | parser tests on canned strings; `ask_llm` with the SDK client mocked | valid JSON → Review; non-JSON, missing field, extra verdict field, bad risk → `model_reply_invalid`; model name read from config; missing `CLAUSECHECK_MODEL` fails at startup; SDK error → `model_unavailable`; tracing on without both hide flags fails at startup; captured trace payload never contains the clause or reply (plus a control run without hide flags that does leak, proving the test works); error messages carry no clause/reply text; request sends the strict JSON schema and reasoning effort, and no `temperature`; refusal or incomplete response → `model_reply_invalid`; summary/concern over the length limit → `model_reply_invalid` |
 | application | fake `ReviewModel` injected | happy path adds disclaimer; ungrounded excerpt → error; model error propagates |
-| api | FastAPI `TestClient`, `ask_llm` patched | 200 response shape; 400 for too short, too long, missing field; 502 for each bad-reply kind; disclaimer always present; every response has an `X-Request-ID` header |
+| api | FastAPI `TestClient`, `app.infrastructure.openai_review_model.ask_llm` patched | 200 response shape; 400 for too short, too long, missing field; 502 for each bad-reply kind; disclaimer always present; every response has an `X-Request-ID` header |
 | logging | `structlog.testing.capture_logs` and caplog | clause, summary, excerpts and reply never appear in captured logs (happy path and every error path); a non-allowlisted field is dropped; tracebacks carry no local variables; one access line per request with `request_id`, `status`, `latency_ms` |
 | scripts and container | manual checklist | start writes the PID file and honours `PORT`; stop ends the process and removes the PID file; stop when not running exits cleanly; `docker build` succeeds; container runs as non-root, listens on 8080, has no `.env` inside (`docker run --rm clausecheck ls -a /app`) |
 
