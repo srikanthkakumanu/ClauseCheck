@@ -1,4 +1,3 @@
-
 # TASK.md — POST /clauses/review
 
 - [X] Docs: README.md, ARCHITECTURE.md with diagrams, CLAUDE.md/PROJECT.md updated
@@ -14,7 +13,7 @@
 - [X] LangSmith tracing in infrastructure: wrap_openai, metadata only, hide flags enforced at startup + no-leak test
 - [X] Dockerfile (multi-stage, pinned, non-root, 8080), .dockerignore, fly.toml (TCP check, [env]) — verify: docker build
 - [X] verify: pytest, ruff check, ruff format --check
-- [ ] I try one real call with a sample clause, then we handle whatever the real reply looks like
+- [X] I try one real call with a sample clause, then we handle whatever the real reply looks like
 - [ ] I deploy: fly launch, fly secrets set, fly deploy
 
 Delete this file when the work is merged.
