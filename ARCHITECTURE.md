@@ -143,15 +143,15 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    req["Request"] --> v{"DTO and Clause<br/>valid?"}
-    v -->|no| e400["400 invalid_clause"]
-    v -->|yes| call{"LLM call<br/>succeeds?"}
-    call -->|no| e502a["502 model_unavailable"]
-    call -->|yes| parse{"Reply parses into<br/>a Review?"}
-    parse -->|no| e502b["502 model_reply_invalid"]
-    parse -->|yes| g{"Every excerpt<br/>in the clause?"}
-    g -->|no| e502c["502 ungrounded_issue"]
-    g -->|yes| ok["200 review + disclaimer"]
+    request["Request"] --> validCheck{"DTO and Clause<br/>valid?"}
+    validCheck -->|no| e400["400 invalid_clause"]
+    validCheck -->|yes| llmCheck{"LLM call<br/>succeeds?"}
+    llmCheck -->|no| e502a["502 model_unavailable"]
+    llmCheck -->|yes| replyCheck{"Reply parses into<br/>a Review?"}
+    replyCheck -->|no| e502b["502 model_reply_invalid"]
+    replyCheck -->|yes| groundCheck{"Every excerpt<br/>in the clause?"}
+    groundCheck -->|no| e502c["502 ungrounded_issue"]
+    groundCheck -->|yes| ok["200 review + disclaimer"]
 
     classDef bad fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
     classDef good fill:#dcfce7,stroke:#16a34a,color:#14532d
