@@ -28,3 +28,6 @@ htmlcov/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Runtime files from scripts/start.sh (PID, log)
+.run/
