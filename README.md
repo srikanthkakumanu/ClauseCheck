@@ -7,6 +7,10 @@ a short summary and the exact phrases that raised concern. It triages; a lawyer 
 - One LLM call per request, made through the OpenAI SDK
 - Clause text is never stored or logged: clauses are confidential
 
+
+
+**Note: This project is built using Agent Coding Approach i.e. One Agent (Claude Code), One Task and One Session.**
+
 ## Quick start
 
 Requires [uv](https://docs.astral.sh/uv/). It uses Python 3.15 (pinned in `.python-version`) and installs it if missing.
