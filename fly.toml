@@ -1,0 +1,42 @@
+# Fly.io config for ClauseCheck. Secrets are NOT here: set them with
+#   fly secrets set OPENAI_API_KEY=... LANGSMITH_API_KEY=...
+app = "clausecheck-change-me"
+primary_region = "iad"
+
+[env]
+  CLAUSECHECK_MODEL = "gpt-6.1-terra"
+  CLAUSECHECK_REASONING_EFFORT = "low"
+  LOG_LEVEL = "INFO"
+  LOG_FORMAT = "json"
+  # Off until sending metadata-only traces to LangSmith SaaS is approved (ARCHITECTURE.md §10).
+  LANGSMITH_TRACING = "false"
+  LANGSMITH_ENDPOINT = "https://api.smith.langchain.com"
+  LANGSMITH_PROJECT = "ClauseCheck"
+  LANGSMITH_HIDE_INPUTS = "true"
+  LANGSMITH_HIDE_OUTPUTS = "true"
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  # Health check without an extra endpoint: is port 8080 accepting connections?
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
